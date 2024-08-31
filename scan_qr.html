@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Scan QR Code{% endblock title %}
+
+{% block content %}
+<div class="pagehead-bg primary-bg"></div>
+
+<div class="container has-pagehead is-pagetitle">
+    <div class="section">
+        <h5 class="pagetitle">Scan QR Code</h5>
+    </div>
+</div>
+
+<div class="container">
+    <div class="section">
+        <div class="row">
+            <div class="col s12">
+                <div class="card">
+                    <div class="card-content">
+                        <span class="card-title">Scan QR Code Siswa</span>
+                        <div id="reader" style="width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="student-details" style="display: none;">
+            <div class="row">
+                <div class="col s12">
+                    <div class="card">
+                        <div class="card-content">
+                            <span class="card-title">Detail Siswa</span>
+                            <p><strong>Nama:</strong> <span id="student-name"></span></p>
+                            <p><strong>WhatsApp:</strong> <span id="student-whatsapp"></span></p>
+                            <p><strong>Kehadiran Terakhir:</strong> <span id="student-attendance"></span></p>
+                            <div class="card-action">
+                                <button id="restart-scanner" class="btn waves-effect waves-light">Restart Scanner</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+let html5QrcodeScanner;
+
+function onScanSuccess(decodedText, decodedResult) {
+    // Stop scanning
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear();
+    }
+    
+    // Fetch student details
+    fetch(`/scan_qr/${encodeURIComponent(decodedText)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                M.toast({html: data.error, classes: 'red'});
+                startScanner(); // Restart scanner if error occurs
+            } else {
+                document.getElementById('student-name').textContent = data.name;
+                document.getElementById('student-whatsapp').textContent = data.whatsapp_number;
+                document.getElementById('student-attendance').textContent = 
+                    data.latest_attendance.date ? 
+                    `${data.latest_attendance.date} - ${data.latest_attendance.status}` : 
+                    'Belum ada catatan kehadiran';
+                document.getElementById('student-details').style.display = 'block';
+                document.getElementById('reader').style.display = 'none';
+                M.toast({html: 'Data siswa berhasil ditemukan', classes: 'green'});
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            M.toast({html: 'Terjadi kesalahan saat mengambil detail siswa', classes: 'red'});
+            startScanner(); // Restart scanner if error occurs
+        });
+}
+
+function onScanFailure(error) {
+    // Handle scan failure, usually better to ignore and keep scanning.
+    console.warn(`QR error = ${error}`);
+}
+
+function startScanner() {
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear();
+    }
+    html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader",
+        { fps: 10, qrbox: {width: 250, height: 250} },
+        /* verbose= */ false
+    );
+    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    document.getElementById('reader').style.display = 'block';
+    document.getElementById('student-details').style.display = 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    startScanner();
+
+    document.getElementById('restart-scanner').addEventListener('click', function() {
+        startScanner();
+    });
+});
+</script>
+{% endblock scripts %}
