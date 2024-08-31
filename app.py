@@ -27,28 +27,6 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-'''
-db_config = {
-    'host': '172.28.69.206',  # Alamat IP server MySQL
-    'user': 'root',           # Nama pengguna MySQL
-    'password': '5uk4rd12',           # Kata sandi untuk pengguna MySQL
-    'db': 'smakb',          # Nama database yang akan dihubungkan
-    'charset': 'utf8mb4',     # Set charset untuk koneksi
-    'cursorclass': pymysql.cursors.DictCursor  # Jenis cursor yang digunakan
-}
-
-'''
-
-
-# Konfigurasi database
-db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'sukardi',
-    'db': 'absensi_db',
-    'charset': 'utf8mb4',
-    'cursorclass': pymysql.cursors.DictCursor
-}
 
 db = SQLAlchemy(app)
 # Setup logging
@@ -64,30 +42,10 @@ handler.setFormatter(formatter)  # Set the formatter
 
 app.logger.addHandler(handler)
 
-"""
-Filter function to format a date value.
-
-Parameters:
-- value: The date value to be formatted.
-
-Returns:
-- The formatted date string in the format 'dd-mm-yyyy'.
-"""
 
 
 
 
-@app.template_filter('format_date')
-def format_date(value):
-    if value is None:
-        return ""
-    return value.strftime('%d-%m-%Y')
-   
-# Register the filter with the app
-app.jinja_env.filters['format_date'] = format_date    
-# Fungsi untuk membuat koneksi database
-def get_db_connection():
-    return pymysql.connect(**db_config)
 
 
 
@@ -148,66 +106,16 @@ def catat_absensi(nama_siswa):
                 return False, f"{nama_siswa} sudah absen hari ini"
 
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password, password):
-            login_user(user)
-            flash('Logged in successfully.', 'success')
-            return redirect(url_for('home'))
-        else:
-            flash('Invalid username or password.', 'error')
-    return render_template('login.html')
 
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    flash('Logged out successfully.', 'success')
-    return redirect(url_for('login'))
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        hashed_password = generate_password_hash(password)
-        new_user = User(username=username, password=hashed_password)
-        db.session.add(new_user)
-        db.session.commit()
-        flash('Account created successfully. Please login.', 'success')
-        return redirect(url_for('login'))
-    return render_template('register.html')
+
+
 
 
 @app.route('/')
 def scan_page1():
     return render_template('scan.html') 
 
-@app.route('/static/pwabuilder-sw.js')
-def service_worker():
-    response = make_response(send_from_directory('static', 'pwabuilder-sw.js'))
-    response.headers['Service-Worker-Allowed'] = '/'
-    return response
-
-@app.route('/.well-known/assetlinks.json')
-def assetlinks():
-    return send_from_directory('.well-known', 'assetlinks.json')
-
-@app.route('/test')
-def test():
-    return render_template('test.html')
-
-@app.route('/home')
-def home():
-    return render_template('home.html')
-
-@app.route('/scana', methods=['GET'])
-def scan_page():
-    return render_template('scana.html')
 
 @app.route('/scan', methods=['POST'])
 def scan():
@@ -243,85 +151,6 @@ def daftar_absensi():
 
     return render_template('daftar_absensi.html', data_absensi=data_absensi, tanggal=tanggal)
 
-@app.route('/absensi_manual', methods=['GET', 'POST'])
-@login_required
-def absensi_manual():
-    if request.method == 'POST':
-        data = request.json
-        print("Data yang diterima:", data)  # Tambahkan ini untuk debugging
-        tanggal = data.get('tanggal')
-        absensi_list = data.get('absensi', [])
-
-        try:
-            for absensi in absensi_list:
-                nama_siswa = absensi['nama_siswa']
-                status_kehadiran = absensi['status_kehadiran']
-                print(f"Mencatat absensi: {nama_siswa} - {status_kehadiran}")  # Tambahkan ini untuk debugging
-                success, message = catat_absensi_manual(nama_siswa, status_kehadiran, tanggal)
-                if not success:
-                    return jsonify({"status": "error", "message": message}), 400
-            
-            return jsonify({"status": "success", "message": "Absensi berhasil dicatat"}), 200
-        except Exception as e:
-            app.logger.error(f"Error in absensi_manual: {str(e)}")
-            return jsonify({"status": "error", "message": f"Terjadi kesalahan saat mencatat absensi: {str(e)}"}), 500
-
-    # Handling GET request
-    tanggal = request.args.get('tanggal', datetime.now().strftime('%Y-%m-%d'))
-    students = get_students_not_present_on_date(tanggal)
-    return render_template('absensi_manual.html', students=students, tanggal=tanggal)
-
-def get_students_not_present_on_date(tanggal):
-    subquery = db.session.query(Absensi.id_siswa).filter(db.func.date(Absensi.waktu) == tanggal).subquery()
-    students_not_present = db.session.query(Student.name).outerjoin(
-        subquery, Student.id == subquery.c.id_siswa
-    ).filter(subquery.c.id_siswa == None).all()
-    
-    return [student.name for student in students_not_present]
-
-def get_students():
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT name FROM students ORDER BY name")
-            return [row['name'] for row in cursor.fetchall()]
-
-def catat_absensi_manual(nama_siswa, status_kehadiran, tanggal):
-    local_tz = pytz.timezone('Asia/Jakarta')
-    waktu_sekarang = datetime.now(local_tz)
-    
-    # Gabungkan tanggal dari input dengan waktu sekarang
-    tanggal_datetime = datetime.strptime(tanggal, '%Y-%m-%d')
-    waktu_absensi = waktu_sekarang.replace(year=tanggal_datetime.year, 
-                                           month=tanggal_datetime.month, 
-                                           day=tanggal_datetime.day)
-
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            # Get student ID
-            cursor.execute("SELECT id FROM students WHERE name = %s", (nama_siswa,))
-            result = cursor.fetchone()
-            if not result:
-                return False, "Siswa tidak ditemukan"
-            
-            id_siswa = result['id']
-            
-            # Check if attendance already exists for this date
-            cursor.execute("SELECT COUNT(*) as count FROM absensi WHERE id_siswa = %s AND DATE(waktu) = %s",
-                           (id_siswa, tanggal))
-            result = cursor.fetchone()
-            
-            if result['count'] == 0:
-                # If no attendance record exists, create a new one
-                cursor.execute("INSERT INTO absensi (id_siswa, waktu, status_kehadiran) VALUES (%s, %s, %s)",
-                               (id_siswa, waktu_absensi, status_kehadiran))
-                conn.commit()
-                return True, f"Absensi {nama_siswa} berhasil dicatat"
-            else:
-                # If attendance record exists, update it
-                cursor.execute("UPDATE absensi SET status_kehadiran = %s, waktu = %s WHERE id_siswa = %s AND DATE(waktu) = %s",
-                               (status_kehadiran, waktu_absensi, id_siswa, tanggal))
-                conn.commit()
-                return True, f"Absensi {nama_siswa} berhasil diperbarui"
 
 
 @app.route('/absensi', methods=['GET', 'POST'])
@@ -479,88 +308,6 @@ def send_wa_absensi():
         }), 500
 
         
-@app.route('/send_wa_pengumuman', methods=['POST'])
-def send_wa_pengumuman():
-    data = request.get_json()
-    pengumuman = data.get('pengumuman')
-
-    if not pengumuman:
-        return jsonify({
-            "status": "error",
-            "message": "Pesan pengumuman tidak boleh kosong"
-        }), 400
-
-    # Ambil semua nomor WhatsApp dan nama dari database
-    with app.app_context():
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT s.whatsapp_number, s.name
-                    FROM students s
-                    WHERE s.whatsapp_number IS NOT NULL
-                """)
-                siswa = cursor.fetchall()
-
-    target_list = []
-    for siswa in siswa:
-        if siswa['whatsapp_number']:
-            # Pastikan nomor WhatsApp dalam format yang benar (628xxxxxxxxxx)
-            wa_number = siswa['whatsapp_number'].replace('+62', '62').replace('0', '62', 1)
-            target_list.append(f"{wa_number}|{siswa['name']}")
-
-    if not target_list:
-        return jsonify({"status": "error", "message": "Tidak ada nomor WhatsApp yang valid"}), 400
-
-    target = ','.join(target_list)
-    message = pengumuman  # Menggunakan pesan yang diinput oleh pengguna
-    delay = '2'
-
-    response = send_whatsapp_message(target, message, delay, fonnte_api_key)
-
-    if isinstance(response, dict):
-        if response.get('status') == True:  # API Fonnte menggunakan boolean True
-            return jsonify({
-                "status": "success",
-                "message": "Pesan WhatsApp berhasil dikirim",
-                "details": response
-            }), 200
-        else:
-            error_message = response.get('message') or 'Unknown error'
-            return jsonify({
-                "status": "warning",
-                "message": f"Pesan mungkin terkirim, tetapi ada masalah: {error_message}",
-                "details": response
-            }), 200
-    else:
-        return jsonify({
-            "status": "error",
-            "message": "Respons tidak valid dari API Fonnte",
-            "details": str(response)
-        }), 500
-
-def send_whatsapp_message(target, message, delay, token):
-    url = 'https://api.fonnte.com/send'
-    headers = {
-        'Authorization': token
-    }
-    data = {
-        'target': target,
-        'message': message,
-        'delay': delay
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, data=data)
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {"status": False, "message": f"Error saat mengirim permintaan: {str(e)}"}
-    except ValueError:  # Jika respons bukan JSON valid
-        return {"status": False, "message": "Respons tidak valid dari server"}
-
-@app.route('/kirim-pengumuman', methods=['GET'])
-def announcement():
-    return render_template('pengumuman.html')
-# spp
 
 def send_fonnte(data):
     url = "https://api.fonnte.com/send"
@@ -722,15 +469,3 @@ def scan_qr(student_name):
         return jsonify(student_data), 200
     else:
         return jsonify({'error': 'Siswa tidak ditemukan'}), 404
-    
-    
-
-
-
-
-'''
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3000, debug=True)
-'''
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=3000)
